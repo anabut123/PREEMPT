@@ -5,51 +5,6 @@ library(ggplot2)
 # Load data - converting empty strings and 'nan' to proper NAs
 df <- read.csv("virus_data.csv", na.strings = c("", "NA", "nan", " "), stringsAsFactors = FALSE)
 
-#### GENERAL COMBINED ####
-# 1. IDENTIFY THE TOP 100 VIRUSES
-top_100_list <- df_clean %>%
-  group_by(Virus_name_fin_cut) %>%
-  summarise(Total_RPM = sum(RPM, na.rm = TRUE)) %>%
-  slice_max(Total_RPM, n = 100) %>%
-  pull(Virus_name_fin_cut)
-
-# 2. PREPARE THE DATA (using explicit dplyr:: calls)
-heatmap_data_100 <- df_clean %>%
-  filter(Virus_name_fin_cut %in% top_100_list) %>%
-  dplyr::select(Virus_name_fin_cut, Site, Mosq_Species_Name, Country) %>%
-  distinct() %>%
-  mutate(Presence = 1)
-
-# 3. GENERATE THE PLOT
-p_top_100 <- ggplot(heatmap_data_100, aes(x = Virus_name_fin_cut, y = Site)) +
-  geom_tile(aes(fill = factor(Presence)), color = "white", size = 0.1) +
-  geom_tile(aes(x = -1, fill = Country), width = 2) +
-  facet_grid(Mosq_Species_Name ~ ., scales = "free_y", space = "free_y") +
-  scale_fill_manual(values = c(
-    "1" = "#F28E8E",                  
-    "Cambodia" = "#3399FF",          
-    "Guyane" = "#00CC99",    
-    "Madagascar" = "#FF9933",        
-    "Central African Republic" = "#003366" 
-  )) +
-  theme_minimal() +
-  scale_x_discrete(position = "top") + 
-  labs(title = "Top 100 Viruses by RPM Across Sites and Species", x = NULL, y = NULL) +
-  theme(
-    axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 0, size = 6),
-    axis.text.y = element_text(size = 8),
-    strip.text.y = element_text(angle = 0, hjust = 0, size = 7, face = "italic"),
-    strip.background = element_blank(),
-    panel.spacing.y = unit(0.3, "lines"), 
-    panel.background = element_rect(fill = "#F5F5F5", color = NA),
-    panel.grid = element_blank(),
-    legend.position = "bottom"
-  )
-
-# 4. SAVE
-ggsave("Top_100_Virus_Host_Matrix.pdf", p_top_100, width = 24, height = 20, limitsize = FALSE)
-
-
 
 #### RAREFACTION ####
 library(dplyr)
@@ -59,7 +14,7 @@ library(ggplot2)
 library(tibble)
 
 # 1. Filter for species with enough data (e.g., at least 3 samples)
-species_to_analyze <- df_clean %>%
+species_to_analyze <- df %>%
   group_by(Mosq_Species_Name) %>%
   summarise(n_samples = n_distinct(Sample_Name)) %>%
   filter(n_samples >= 3) %>%
@@ -67,9 +22,7 @@ species_to_analyze <- df_clean %>%
 
 # 2. Create a function to calculate the accumulation curve for a single mosquito species
 get_rarefaction_data <- function(sp_name) {
-  # Create a community matrix for this specific mosquito species
-  # Rows = Samples, Columns = Virus Names
-  temp_mat <- df_clean %>%
+  temp_mat <- df %>%
     filter(Mosq_Species_Name == sp_name) %>%
     group_by(Sample_Name, Virus_name_fin_cut) %>%
     summarise(abundance = 1, .groups = 'drop') %>%
@@ -99,7 +52,7 @@ ggplot(rarefaction_results, aes(x = Samples, y = Richness, color = Mosq_Species_
   theme_minimal() +
   labs(
     title = "Rarefaction Analysis of Viral Discovery",
-    subtitle = "Unique Virus_name_fin_cut found per number of mosquito samples",
+    subtitle = "Unique Viruses found per number of mosquito samples",
     x = "Number of Mosquito Samples",
     y = "Cumulative Virus Species Richness",
     fill = "Mosquito Species",
@@ -109,6 +62,7 @@ ggplot(rarefaction_results, aes(x = Samples, y = Richness, color = Mosq_Species_
 
 # 5. Save as PDF
 ggsave("Virus_Rarefaction_Curves.pdf", width = 10, height = 7)
+
 
 
 
@@ -167,17 +121,15 @@ mosquito_wide <- data %>%
   summarise(count = n_distinct(Sample_Name), .groups = "drop") %>% 
   pivot_wider(names_from = Mosq_Species_Name, values_from = count, values_fill = 0) %>%
   left_join(unique_sites, by = c("Site", "Country")) %>% 
-  filter(!is.na(lon)) # Keep only sites we have coordinates for
+  filter(!is.na(lon))
 
-# --- FIX 1: CALCULATE TOTAL SAMPLES SAFELY ---
 mosquito_wide <- mosquito_wide %>%
   mutate(total_samples = rowSums(
     dplyr::select(., where(is.numeric), -lon, -lat), 
     na.rm = TRUE
   ))
 
-# --- FIX 2: ADD JITTER TO PREVENT OVERLAP ---
-set.seed(42) # Ensures the jitter is the same every time you run the code
+set.seed(42) 
 mosquito_wide <- mosquito_wide %>%
   mutate(
     lon = lon + runif(n(), -0.25, 0.25),
@@ -212,7 +164,6 @@ for (country_name in unique_countries) {
   
   if(nrow(country_pie_data) == 0) next 
   
-  # Select proper map
   if (country_name %in% c("French Guiana", "Guyane", "French Guyana")) {
     country_map <- french_guiana_map
   } else {
@@ -224,20 +175,15 @@ for (country_name in unique_countries) {
   bbox <- st_bbox(country_map)
   pie_cols <- intersect(names(species_colors), names(country_pie_data))
   
-  # --- FIX 3: SCALE RADIUS (0.8 Multiplier for size difference) ---
   country_pie_data <- country_pie_data %>%
-    mutate(scaled_r = 0.2)  # Change 0.5 to make them all bigger or smaller
+    mutate(scaled_r = 0.2) 
   
   p <- ggplot() +
-    # Background world map
     geom_sf(data = world, fill = "grey95", color = "grey80", linetype = "dashed", linewidth = 0.1) +
-    # Focused country map
     geom_sf(data = country_map, fill = "white", color = "black", linewidth = 0.5) +
-    # Add Pie Charts
     geom_scatterpie(data = country_pie_data, 
                     aes(x = lon, y = lat, r = scaled_r), 
                     cols = pie_cols, color = "black", alpha = 0.9) +
-    # Add Site Labels (Repelled to avoid pies)
     geom_text_repel(data = country_pie_data, 
                     aes(x = lon, y = lat, label = Site),
                     size = 4, 
@@ -247,7 +193,6 @@ for (country_name in unique_countries) {
                     segment.color = "grey30",
                     min.segment.length = 0) +
     scale_fill_manual(values = species_colors) +
-    # Crop to country area with a small buffer
     coord_sf(xlim = c(bbox["xmin"]-1.5, bbox["xmax"]+1.5), 
              ylim = c(bbox["ymin"]-1.5, bbox["ymax"]+1.5)) +
     theme_minimal() +
@@ -352,13 +297,11 @@ for (country_name in unique_countries) {
   
   bbox <- st_bbox(country_map)
   
-  # Dynamic Legend
   present_in_country <- country_pie_data %>% 
     dplyr::select(any_of(top_50_viruses)) %>% 
     dplyr::select(where(~sum(.) > 0)) %>% 
     names()
   
-  # --- FIX 2: UNIFORM SIZE ---
   country_pie_data <- country_pie_data %>%
     mutate(scaled_r = 0.2)  
   
@@ -397,7 +340,6 @@ library(car)
 
 raw_data <- read.csv("virus_data.csv") 
 
-# --- Step A: Create Abundance Matrix using RPM ---
 # We use RPM to capture the "evenness" of the viral community
 aggregated_data <- raw_data %>%
   group_by(Sample_Name, Mosq_Species_Name, Site, Country, Collection_Y, Season, Virus_name_fin_cut) %>%
@@ -410,14 +352,12 @@ virus_cols <- setdiff(names(aggregated_data), metadata_cols)
 virus_matrix_all <- as.matrix(aggregated_data[, virus_cols])
 
 # --- Step B: FILTER VIRUSES (Occurrence >= 3) ---
-# We count how many samples each virus appears in (Presence/Absence)
 virus_counts <- colSums(virus_matrix_all > 0)
 
-# Identify viruses that meet your threshold (e.g., detected in at least 3 mosquitoes)
+# Identify viruses that meet the threshold (e.g., detected in at least 3 mosquitoes)
 keep_viruses <- names(virus_counts[virus_counts >= 3])
 
 # Create the filtered abundance matrix
-# Both Alpha and Shannon will be calculated ONLY from these 'keep_viruses'
 virus_matrix_filtered <- virus_matrix_all[, keep_viruses]
 
 # --- Step C: Calculate Metrics based on Filtered Data ---
@@ -426,15 +366,7 @@ virus_matrix_filtered <- virus_matrix_all[, keep_viruses]
 aggregated_data$alpha_richness <- rowSums(virus_matrix_filtered > 0)
 
 # 2. Shannon Diversity: Uses the RPM values of the 'filtered' viruses
-# This accounts for the relative dominance of the circulating viruses
 aggregated_data$shannon <- vegan::diversity(virus_matrix_filtered, index = "shannon")
-
-# --- Step D: Filter Mosquito Groups (n >= 3) ---
-# Finally, we ensure we only analyze mosquito species with enough samples
-sampled_data <- aggregated_data %>%
-  group_by(Mosq_Species_Name) %>%
-  filter(n() >= 3) %>%
-  ungroup()
 
 # --- Step D: Filter Mosquito Groups (n >= 3) ---
 sampled_data <- aggregated_data %>%
@@ -451,40 +383,46 @@ sampled_data <- sampled_data %>% mutate(across(c(Site, Season), as.factor))
 print(paste("Original virus count:", length(virus_cols)))
 print(paste("Filtered virus count (n >= 3):", length(keep_viruses)))
 
+
+
+
+library(ggplot2)
 library(dplyr)
 library(tidyr)
-library(vegan)
-library(emmeans)
-library(sandwich) 
-library(multcomp)
-library(RColorBrewer)
-
+library(ggtext)
+library(rstatix)
+library(multcompView)
 
 # ---------------------------------------------------------
-# ALPHA RICHNESS SECTION
+# ALPHA RICHNESS SECTION (Non-Parametric)
 # ---------------------------------------------------------
 
-# 1. Use a One-Way model to avoid 'nonEst' errors
-mod_alpha_robust <- lm(alpha_richness ~ species_reorder, data = sampled_data)
+# 1. Non-parametric Dunn's Test for Alpha Richness
+dunn_alpha <- sampled_data %>% dunn_test(alpha_richness ~ species_reorder, p.adjust.method = "BH")
+p_vals_alpha <- dunn_alpha$p.adj
+names(p_vals_alpha) <- paste(dunn_alpha$group1, dunn_alpha$group2, sep = "-")
+cld_alpha_vec <- multcompLetters(p_vals_alpha)$Letters
 
-# 2. Get Robust Significance (Fixes Heteroscedasticity issue)
-specs_alpha <- emmeans(mod_alpha_robust, "species_reorder", vcov. = vcovHC)
-cld_alpha <- as.data.frame(cld(specs_alpha, Letters = letters, adjust = "tukey", sort = FALSE))
+cld_alpha <- data.frame(
+  species_reorder = names(cld_alpha_vec),
+  .group = as.character(cld_alpha_vec),
+  stringsAsFactors = FALSE
+)
 
-# 3. Clean and Sync Order
+# 2. Clean and Sync Order
 cld_alpha$.group <- trimws(as.character(cld_alpha$.group))
 plot_order <- levels(sampled_data$species_reorder)
 final_alpha_stats <- cld_alpha[match(plot_order, cld_alpha$species_reorder), ]
 
-# 4. Color Mapping (Shared Letters = Shared Colors)
+# 3. Colour Mapping (Shared Letters = Shared Colours)
 unique_groups_alpha <- unique(final_alpha_stats$.group)
 n_grps_alpha <- length(unique_groups_alpha)
 alpha_pal <- rainbow(n_grps_alpha, s = 0.5, v = 0.9)
 names(alpha_pal) <- unique_groups_alpha
 final_alpha_colors <- alpha_pal[final_alpha_stats$.group]
 
-# 5. Generate PDF
-pdf("Mosquito_Alpha_Robust_FINAL.pdf", width = 13, height = 8)
+# 4. Generate PDF
+pdf("Mosquito_Alpha_NonParametric_FINAL.pdf", width = 13, height = 8)
 par(mar = c(5, 15, 4, 6)) 
 
 boxplot(alpha_richness ~ species_reorder, data = sampled_data,
@@ -493,7 +431,7 @@ boxplot(alpha_richness ~ species_reorder, data = sampled_data,
         border = "black",
         xlab = "Alpha Richness (Virus Count)", ylab = "",
         main = "Virus Alpha Richness per Mosquito Species",
-        sub = "Robust SE (HC3) used for heteroscedasticity; Tukey HSD adjustment",
+        sub = "Kruskal-Wallis test with Dunn's post-hoc pairwise comparisons (BH adjusted)",
         pch = 16, outcol = "red")
 
 x_pos_alpha <- max(sampled_data$alpha_richness, na.rm = TRUE) * 1.05
@@ -503,29 +441,34 @@ dev.off()
 
 
 # ---------------------------------------------------------
-# SHANNON DIVERSITY SECTION
+# SHANNON DIVERSITY SECTION (Non-Parametric)
 # ---------------------------------------------------------
 
-# 1. Use a One-Way model
-mod_shannon_robust <- lm(shannon ~ species_reorder, data = sampled_data)
+# 1. Non-parametric Dunn's Test for Shannon Diversity
+dunn_shannon <- sampled_data %>% dunn_test(shannon ~ species_reorder, p.adjust.method = "BH")
+p_vals_shannon <- dunn_shannon$p.adj
+names(p_vals_shannon) <- paste(dunn_shannon$group1, dunn_shannon$group2, sep = "-")
+cld_shannon_vec <- multcompLetters(p_vals_shannon)$Letters
 
-# 2. Get Robust Significance
-specs_shannon <- emmeans(mod_shannon_robust, "species_reorder", vcov. = vcovHC)
-cld_shannon <- as.data.frame(cld(specs_shannon, Letters = letters, adjust = "tukey", sort = FALSE))
+cld_shannon <- data.frame(
+  species_reorder = names(cld_shannon_vec),
+  .group = as.character(cld_shannon_vec),
+  stringsAsFactors = FALSE
+)
 
-# 3. Clean and Sync Order
+# 2. Clean and Sync Order
 cld_shannon$.group <- trimws(as.character(cld_shannon$.group))
 final_shannon_stats <- cld_shannon[match(plot_order, cld_shannon$species_reorder), ]
 
-# 4. Color Mapping
+# 3. Colour Mapping
 unique_groups_shannon <- unique(final_shannon_stats$.group)
 n_grps_shannon <- length(unique_groups_shannon)
 shannon_pal <- rainbow(n_grps_shannon, s = 0.5, v = 0.9)
 names(shannon_pal) <- unique_groups_shannon
 final_shannon_colors <- shannon_pal[final_shannon_stats$.group]
 
-# 5. Generate PDF
-pdf("Mosquito_Shannon_Robust_FINAL.pdf", width = 13, height = 8)
+# 4. Generate PDF
+pdf("Mosquito_Shannon_NonParametric_FINAL.pdf", width = 13, height = 8)
 par(mar = c(5, 15, 4, 6)) 
 
 boxplot(shannon ~ species_reorder, data = sampled_data,
@@ -534,7 +477,7 @@ boxplot(shannon ~ species_reorder, data = sampled_data,
         border = "black",
         xlab = "Shannon Index (H')", ylab = "",
         main = "Virus Shannon Diversity per Mosquito Species",
-        sub = "Robust SE (HC3) used for heteroscedasticity; Tukey HSD adjustment",
+        sub = "Kruskal-Wallis test with Dunn's post-hoc pairwise comparisons (BH adjusted)",
         pch = 16, outcol = "red")
 
 x_pos_shannon <- max(sampled_data$shannon, na.rm = TRUE) * 1.05
@@ -542,16 +485,16 @@ text(x = x_pos_shannon, y = 1:nrow(final_shannon_stats),
      labels = final_shannon_stats$.group, pos = 4, xpd = TRUE, cex = 1, font = 2)
 dev.off()
 
-print("Both Alpha and Shannon PDFs have been generated with Robust statistics.")
+print("Both Alpha and Shannon PDFs have been generated with Non-Parametric statistics.")
 
-#### MEAN ALPHA RICHNESS HEATMAP ####
-library(ggplot2)
-library(dplyr)
-library(tidyr)
-library(ggtext) # Required for italics and genus colors in labels
+
+# ---------------------------------------------------------
+# MEAN ALPHA RICHNESS HEATMAP
+# ---------------------------------------------------------
 
 # 1. Aggregate Data
 heatmap_data <- sampled_data %>%
+  filter(alpha_richness > 0) %>%
   group_by(Country, Site, Mosq_Species_Name) %>%
   summarise(
     mean_richness = mean(alpha_richness, na.rm = TRUE),
@@ -566,7 +509,7 @@ multi_country_species <- heatmap_data %>%
   filter(n_countries > 1) %>%
   pull(Mosq_Species_Name)
 
-# 3. Define Genus-specific Colors (Matching the Screenshot)
+# 3. Define Genus-specific Colours
 genus_colors <- c(
   "Mansonia"   = "forestgreen", 
   "Culex"      = "firebrick3", 
@@ -578,7 +521,6 @@ genus_colors <- c(
 heatmap_data <- heatmap_data %>%
   mutate(
     Genus = sub(" .*", "", Mosq_Species_Name),
-    # Default to black if genus not in our list
     Genus_Col = ifelse(Genus %in% names(genus_colors), genus_colors[Genus], "black"),
     label_style = case_when(
       Mosq_Species_Name %in% multi_country_species ~ 
@@ -598,19 +540,14 @@ heatmap_data$Site <- factor(heatmap_data$Site, levels = site_order)
 
 # 6. Generate the Plot
 final_plot <- ggplot(heatmap_data, aes(x = Site, y = reorder(label_style, Mosq_Species_Name))) +
-  # Heatmap tiles
   geom_tile(aes(fill = mean_richness), color = "grey90", linewidth = 0.1) +
-  # Sample counts inside cells (counts unique Sample_Name/Fastq files)
   geom_text(aes(label = n_samples), color = "white", size = 3, fontface = "bold") +
-  # Color scale
   scale_fill_viridis_c(option = "viridis", name = "Mean virus\nrichness") +
-  # Grouping by Country at the bottom
   facet_grid(. ~ Country, scales = "free_x", space = "free_x", switch = "x") +
   theme_minimal() +
   labs(x = NULL, y = "Mosquito species") +
   theme(
     axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5),
-    # Important: element_markdown allows the HTML colors/bolding to work
     axis.text.y = element_markdown(size = 10),
     strip.placement = "outside",
     strip.text = element_text(face = "bold", size = 11),
@@ -619,58 +556,45 @@ final_plot <- ggplot(heatmap_data, aes(x = Site, y = reorder(label_style, Mosq_S
     legend.position = "right"
   )
 
-# 7. Save the output
+# 7. Save output
 ggsave("Virus_Richness_Heatmap_Final.pdf", plot = final_plot, width = 12, height = 9)
 print("Plot saved as Virus_Richness_Heatmap_Final.pdf")
 
 
+
+
+
+
 #### GLM ####
-# 1. Get the Sequential (Type I) Analysis of Deviance
-glm_richness <- glm(alpha_richness ~ species_reorder + Site + Season + Collection_Y, 
-                    data = sampled_data, 
-                    family = poisson(link = "log"))
-
-dev_table <- anova(glm_richness, test = "Chisq")
-
-results <- data.frame(
-  Factor = rownames(dev_table)[2:nrow(dev_table)],
-  Reduction = dev_table$Deviance[2:nrow(dev_table)]
-)
-
-# 3. Calculate Unexplained (Residual deviance of the full model)
-null_dev <- glm_richness$null.deviance
-resid_dev <- glm_richness$deviance # This is what's left over
-
-# 4. Assemble the final data
-results_pct <- data.frame(
-  Factor = results$Factor,
-  Percentage = (results$Reduction / null_dev) * 100
-)
-
-unexplained_row <- data.frame(
-  Factor = "Unexplained", 
-  Percentage = (resid_dev / null_dev) * 100
-)
-
-final_pie_data <- rbind(results_pct, unexplained_row)
-
-# IMPORTANT: Ensure species names are clean for the legend
-final_pie_data$Factor <- gsub("species_reorder", "Species", final_pie_data$Factor)
-
-# Verify the sum (Should be 100%)
-print(paste("Total Sum:", sum(final_pie_data$Percentage)))
-
-
+library(brglm2)
+library(dplyr)
 library(ggplot2)
 library(ggrepel)
-library(dplyr)
 
-# 1. Ensure the data is sorted so the cumulative sum (ypos) matches the plot
-final_pie_data <- final_pie_data %>%
+# 1. Fit Penalised Poisson GLM
+glm_richness_penalised <- glm(
+  alpha_richness ~ species_reorder + Site + Season + Collection_Y, 
+  data = sampled_data, 
+  family = poisson(link = "log"),
+  method = "brglmFit"
+)
+
+# 2. Extract Type I Sequential Deviance Contributions
+dev_table <- anova(glm_richness_penalised, test = "Chisq")
+null_dev <- glm_richness_penalised$null.deviance
+
+final_pie_data <- data.frame(
+  Factor = c(rownames(dev_table)[-1], "Unexplained"),
+  Percentage = (c(dev_table$Deviance[-1], glm_richness_penalised$deviance) / null_dev) * 100
+) %>%
+  filter(!is.na(Percentage)) %>%
+  mutate(Factor = gsub("species_reorder", "Species", Factor)) %>%
   arrange(desc(Factor)) %>%
   mutate(ypos = cumsum(Percentage) - 0.5 * Percentage)
 
-# 2. Create the plot
+print(paste("Total Sum:", sum(final_pie_data$Percentage)))
+
+# 3. Generate and Save Pie Chart
 p <- ggplot(final_pie_data, aes(x = "", y = Percentage, fill = Factor)) +
   geom_bar(stat = "identity", width = 1, color = "white") +
   coord_polar("y", start = 0) +
@@ -678,9 +602,8 @@ p <- ggplot(final_pie_data, aes(x = "", y = Percentage, fill = Factor)) +
   scale_fill_brewer(palette = "Pastel1") +
   labs(
     title = "Contribution of Factors to Viral Richness",
-    subtitle = "Proportion of Deviance Explained (GLM)"
+    subtitle = "Proportion of Deviance Explained (Penalised GLM)"
   ) +
-  # Now ypos exists in the data frame!
   geom_text_repel(
     aes(y = ypos, label = paste0(round(Percentage, 1), "%")),
     size = 4,
@@ -688,9 +611,17 @@ p <- ggplot(final_pie_data, aes(x = "", y = Percentage, fill = Factor)) +
     show.legend = FALSE
   )
 
-# 3. Save
-ggsave("Viral_Richness_Pie_Chart.pdf", 
-       plot = p, width = 8, height = 6)
+ggsave(
+  "Viral_GLM_Pie_Chart.pdf", 
+  plot = p, 
+  width = 8, 
+  height = 6
+)
+
+
+
+
+
 #### MOSQ SPECIES PERMANOVA ####
 library(dplyr)
 library(tidyr)
@@ -708,7 +639,6 @@ aggregated_data <- raw_data %>%
   pivot_wider(names_from = Virus_name_fin_cut, values_from = presence, values_fill = 0) %>%
   ungroup()
 
-# Update metadata columns to include Genus
 metadata_cols <- c("Sample_Name", "MorphoID_Genus", "Mosq_Species_Name", "Site", "Country", "Collection_Y", "Season")
 virus_cols <- setdiff(names(aggregated_data), metadata_cols)
 
@@ -742,12 +672,10 @@ keep_viruses <- names(virus_counts[virus_counts >= 3])
 # 3. Create the final virus_species_matrix using only the kept viruses
 virus_species_matrix <- temp_matrix[, keep_viruses]
 
-# --- Summary for your Methods ---
 print(paste("Initial total viruses:", length(virus_cols)))
 print(paste("Viruses remaining after <3 filter:", length(keep_viruses)))
 print(paste("Mosquito samples in analysis:", nrow(sampled_data)))
 
-# Formula uses / to nest species within Genus
 row_sums <- rowSums(virus_species_matrix)
 empty_samples <- which(row_sums == 0)
 
@@ -758,7 +686,7 @@ if(length(empty_samples) > 0) {
   # Remove from the matrix
   virus_species_matrix <- virus_species_matrix[-empty_samples, ]
   
-  # Remove from the metadata (CRITICAL: they must match!)
+  # Remove from the metadata
   sampled_data <- sampled_data[-empty_samples, ]
 }
 
@@ -771,7 +699,7 @@ perm_result <- adonis2(virus_species_matrix ~ MorphoID_Genus / species_reorder +
 print("--- Hierarchical PERMANOVA Results ---")
 print(perm_result)
 
-# --- Step 4: Indicator Species Analysis (Focus on Species) ---
+# --- Step 4: Indicator Species Analysis ---
 # Identifies which specific viruses are indicators for specific mosquito species
 library(indicspecies)
 library(permute)
@@ -780,14 +708,13 @@ library(parallel)
 inv_sp <- multipatt(virus_species_matrix, 
                     sampled_data$species_reorder, 
                     func = "IndVal.g", 
-                    duleg = TRUE,            # CRITICAL: This makes it much faster
+                    duleg = TRUE,            
                     control = how(nperm = 999))
 
 # Once it finishes, look at the specialists
 summary(inv_sp)
 
 
-# Visualize dot plot
 level_names <- levels(sampled_data$species_reorder)
 
 # 2. Build the data frame carefully
@@ -797,9 +724,7 @@ indic_df <- data.frame(
   Stat = inv_sp$sign$stat,
   P_val = inv_sp$sign$p.value
 ) %>%
-  # Filter out the '0' group (viruses not associated with any specific group)
   filter(Group_Index > 0) %>%
-  # Map the Index to the actual Name
   mutate(Mosquito_Species = level_names[Group_Index])
 
 # 3. Filter for significant viruses and take top 5
@@ -862,7 +787,6 @@ sampled_data <- aggregated_data %>%
   filter(n() >= 3) %>%
   ungroup()
 
-# --- STEP 3: THE CRITICAL FIX (SYNCING) ---
 virus_species_matrix <- as.matrix(sampled_data[, virus_cols])
 rownames(virus_species_matrix) <- sampled_data$Sample_Name
 
@@ -878,7 +802,6 @@ virus_matrix_aligned <- virus_matrix_aligned[rowSums(virus_matrix_aligned) > 0, 
 metadata_aligned <- sampled_data %>%
   filter(Sample_Name %in% rownames(virus_matrix_aligned)) %>%
   arrange(match(Sample_Name, rownames(virus_matrix_aligned))) %>%
-  # Kill "ghost" factor levels
   mutate(across(all_of(metadata_cols), ~factor(as.character(.x))))
 
 # --- PERMANOVA for Global Drivers ---
@@ -928,7 +851,7 @@ for (f in factors_to_test) {
   }
 }
 
-# --- Step 3.5: PCoA Plots for Similarity ---
+# --- Step 3.5: PCoA Plots ---
 # 1. Calculate the Jaccard distance matrix
 dist_matrix <- vegdist(virus_matrix_aligned, method = "jaccard")
 
@@ -1028,10 +951,8 @@ p_combined_final <- ggplot(master_plot_df, aes(x = GroupName, y = reorder(Virus,
     color = "Grouping Category"
   ) +
   theme(
-    # Increase Y-axis text size slightly and ensure black color for clarity
     axis.text.y = element_text(size = 11, color = "black"), 
     
-    # Keep X-axis labels legible but tight
     axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1, size = 11, face = "italic"),
     
     # BOLD and visible Factor Names
@@ -1047,8 +968,8 @@ p_combined_final <- ggplot(master_plot_df, aes(x = GroupName, y = reorder(Virus,
 # 4. SAVE WITH NEW DIMENSIONS:
 ggsave("Consolidated_Indicators_Optimized.pdf", 
        p_combined_final, 
-       width = 14,   # Reduced from 18/20 to tighten horizontal space
-       height = 18)  # Increased from 9/12 to give viruses vertical room
+       width = 14,  
+       height = 18) 
 
 
 #### PCOA by factor ####
@@ -1107,7 +1028,6 @@ grid.arrange(p1, p2, p3, p4, ncol = 2)
 
 library(gridExtra)
 
-# 1. Open the PDF "device"
 pdf("Virome_PCoA_4Panel_Revision.pdf", width = 12, height = 8)
 
 # 2. Print the grid.arrange object
@@ -1116,123 +1036,6 @@ grid.arrange(p1, p2, p3, p4, ncol = 2)
 dev.off()
 
 
-#### MGLM ####
-# --- Step 1: Prepare the Data ---
-library(mvabund)
-# Use the data that was filtered for n >= 3
-full_data_filtered <- sampled_data  
-
-# 1. Safety Check: Create species_reorder if it doesn't exist
-if (!"species_reorder" %in% colnames(full_data_filtered)) {
-  full_data_filtered <- full_data_filtered %>%
-    dplyr::mutate(species_reorder = factor(Mosq_Species_Name))
-}
-
-# 2. Convert metadata to factors safely
-full_data_filtered <- full_data_filtered %>%
-  dplyr::mutate(across(any_of(c("species_reorder", "Country", "Season", 
-                                "Collection_Y", "Site", "MorphoID_Genus")), as.factor))
-
-# 3. Synchronize Matrix and Metadata
-virus_mv <- as.mvabund(virus_species_matrix)
-
-# 4. Final Verification
-print(paste("Metadata Rows:", nrow(full_data_filtered)))
-print(paste("Matrix Rows:", nrow(virus_mv)))
-
-if(nrow(full_data_filtered) != nrow(virus_mv)) {
-  stop("Dimension Mismatch: Metadata and Matrix rows do not match!")
-}
-
-# Nested structure: Genus + Genus:Species
-mv_glm <- manyglm(virus_mv ~ MorphoID_Genus / species_reorder + Country / Site + Collection_Y + Season, 
-                  data = full_data_filtered, 
-                  family = "binomial")
-
-# --- Step 2: Analysis of Deviance with Parallel Processing ---
-anova_results <- anova(mv_glm, 
-                       p.uni = "adjusted", 
-                       nBoot = 999, 
-                       parallel = 4)
-
-print(anova_results)
-
-# --- Step 3: Extracting Univariate P-values for Heatmap ---
-unip <- anova_results$uni.p  
-
-# Convert to long format for ggplot
-df_heat <- as.data.frame(as.table(unip))
-colnames(df_heat) <- c("Predictor", "VirusSpecies", "pvalue")
-
-# Filter out Intercept and calculate -log10
-df_heat_plot <- df_heat %>%
-  filter(Predictor != "(Intercept)") %>%
-  mutate(negLogP = -log10(pvalue))
-
-# Add significance symbols
-df_heat_plot$significance <- case_when(
-  df_heat_plot$pvalue < 0.001 ~ "***",
-  df_heat_plot$pvalue < 0.01 ~ "**", 
-  df_heat_plot$pvalue < 0.05 ~ "*",
-  TRUE ~ ""
-)
-
-
-# 1. Identify "Signal" Viruses
-signal_viruses <- df_heat_plot %>%
-  filter(pvalue < 0.1) %>% 
-  pull(VirusSpecies) %>%
-  unique()
-
-# 2. Filter the main data frame to only include these viruses
-df_heat_filtered <- df_heat_plot %>%
-  filter(VirusSpecies %in% signal_viruses)
-
-
-
-
-
-
-## PLOT ##
-# Step 1: Create a mapping to clean up the names
-df_heat_cleaned <- df_heat_sorted %>%
-  mutate(Predictor_Group = case_when(
-    # Combine Genus and Genus:Species into one "Mosquito species" label
-    Predictor %in% c("MorphoID_Genus", "MorphoID_Genus:species_reorder") ~ "Mosquito species",
-    # Combine Country and Country:Site into one "Country" label
-    Predictor %in% c("Country", "Country:Site") ~ "Site",
-    Predictor == "Collection_Y" ~ "Year",
-    Predictor == "Season" ~ "Season",
-    TRUE ~ as.character(Predictor)
-  )) %>%
-  # Step 2: Group by the new labels and keep the strongest p-value per virus
-  group_by(VirusSpecies, Predictor_Group) %>%
-  summarize(
-    pvalue = min(pvalue, na.rm = TRUE),
-    negLogP = max(negLogP, na.rm = TRUE),
-    .groups = "drop"
-  ) %>%
-  # Step 3: Re-apply significance stars based on the best p-value
-  mutate(significance = case_when(
-    pvalue < 0.001 ~ "***",
-    pvalue < 0.01 ~ "**",
-    pvalue < 0.05 ~ "*",
-    TRUE ~ ""
-  ))
-
-# Step 4: Plot with Virus on Y-axis
-g <- ggplot(df_heat_cleaned, aes(x = factor(Predictor_Group, levels = c("Mosquito species", "Site", "Year", "Season")), 
-                                 y = VirusSpecies, 
-                                 fill = negLogP)) +
-  geom_tile(color = "gray90") +
-  geom_text(aes(label = significance), color = "black", size = 3) +
-  scale_fill_gradient(low = "white", high = "#E69F00") + # Warm orange/yellow like the pic
-  labs(x = NULL, y = "Virus Species", fill = "-log10(p)") +
-  theme_minimal() +
-  theme(axis.text.x = element_text(angle = 0, hjust = 0.5),
-        panel.grid = element_blank())
-
-ggsave("manyglm_sorted_with_asterisks.pdf", g, width = 10, height = 10)
 
 
 
@@ -1253,7 +1056,6 @@ virus_cols <- keep_viruses
 
 nodes_data <- sampled_data %>%
   mutate(Country = trimws(as.character(Country))) %>%
-  # Group by the factors from your old code
   group_by(Mosq_Species_Name, Collection_Y, Season, Site, Country, MorphoID_Genus) %>%
   summarize(across(all_of(virus_cols), ~ max(.)), .groups = "drop")
 
@@ -1328,15 +1130,13 @@ layout_df <- data.frame(
 
 # Prepare segments for ggplot
 edge_df <- igraph::as_data_frame(connected_network, what = "edges") %>%
-  # Specify dplyr::select here
   inner_join(layout_df %>% dplyr::select(name, x, y), by = c("from" = "name")) %>%
   rename(from_x = x, from_y = y) %>%
-  # And specify dplyr::select here
   inner_join(layout_df %>% dplyr::select(name, x, y), by = c("to" = "name")) %>%
   rename(to_x = x, to_y = y)
 
 
-# --- Step 5: Visualization with Your Colors ---
+# --- Step 5: Visualization ---
 country_colors <- c("Cambodia"="#DB70AE", "Madagascar"="#F8766D", 
                     "Central African Republic"="#0B55D6", "Guyane"="#00C0AF")
 season_colors <- c("Dry" = "#E69F00", "Rainy" = "#56B4E9")
@@ -1353,24 +1153,22 @@ final_plot <- ggplot() +
   # 3. STACKED LABELS: Species on top (italic), Site on bottom (bold)
   geom_text_repel(data = layout_df, 
                   aes(x=x, y=y, 
-                      label=paste0(species, "\n", site), # \n creates the line break
-                      color=country),                    # Colors text by country
+                      label=paste0(species, "\n", site), 
+                      color=country),                    
                   size=8, 
-                  fontface="bold.italic",                # Makes the whole block stand out
-                  lineheight = 0.9,                      # Tightens the gap between the two lines
+                  fontface="bold.italic",                
+                  lineheight = 0.9,                      
                   max.overlaps=Inf, 
-                  box.padding=1.5,                       # Distance from the node
+                  box.padding=1.5,                       
                   point.padding=1.0, 
-                  direction = "both",                    # Allows movement in all directions to find space
-                  bg.color = "white",                    # Adds a subtle white outline for readability
-                  bg.r = 0.15) +                         # Thickness of that outline
+                  direction = "both",                    
+                  bg.color = "white",                    
+                  bg.r = 0.15) +                         
   
   scale_color_manual(values = country_colors) +
   
-  # THICKER LINES (Increased range for visibility)
   scale_linewidth_continuous(range = c(2.0, 8.0), name = "Jaccard Similarity") +
   
-  # BIGGER NODES
   scale_size_continuous(range = c(8, 22), name = "Virus Richness") +
   
   scale_alpha_continuous(range = c(0.4, 0.9), guide = "none") +
@@ -1388,13 +1186,12 @@ ggsave("virome_network_CLEAN_LABELS.pdf", final_plot, width=40, height=40)
 
 #### MADAGASCAR ####
 
-# biopartite
+# bipartite
 
 # Filter for Madagascar only
 mad_data <- sampled_data %>% 
   filter(Country == "Madagascar")
 
-# Ensure Season ordering is correct for the trend lines
 mad_data$Season <- factor(mad_data$Season, levels = c("Dry", "Rainy"))
 
 library(dplyr)
@@ -1417,7 +1214,7 @@ graph <- graph_from_data_frame(d = edges, directed = FALSE)
 V(graph)$type <- V(graph)$name %in% mad_data$Mosq_Species_Name
 V(graph)$degree <- degree(graph)
 
-# 4. Define Status (Generalist = linked to 3+ hosts)
+# 4. Define Status (Generalist = linked to 2+ genera)
 V(graph)$status <- case_when(
   V(graph)$type ~ "Mosquito Host",
   V(graph)$degree >= 3 ~ "Virus: Generalist",
@@ -1452,7 +1249,6 @@ p_final_network_padded <- ggraph(graph, layout = "bipartite") +
     point.padding = 0.5
   ) +
   
-  # ADD THIS LINE: This adds 10% extra space at the top and bottom of the Y-axis
   scale_y_continuous(expand = expansion(mult = c(0.1, 0.1))) +
   
   scale_color_manual(values = c(
@@ -1466,7 +1262,7 @@ p_final_network_padded <- ggraph(graph, layout = "bipartite") +
   theme_graph() +
   theme(
     legend.position = "right",
-    plot.margin = margin(30, 30, 30, 30) # Adds margin around the entire plot
+    plot.margin = margin(30, 30, 30, 30) 
   ) +
   labs(
     title = "Madagascar Virus-Host Interactome",
@@ -1478,7 +1274,7 @@ ggsave("Madagascar_Bipartite_No_Cutoff.pdf",
        plot = p_final_network_padded, 
        device = cairo_pdf, 
        width = 14, 
-       height = 20) # Increased height from 16 to 20
+       height = 20) 
 
 
 
@@ -1489,10 +1285,8 @@ ggsave("Madagascar_Bipartite_No_Cutoff.pdf",
 mad_data <- sampled_data %>% 
   filter(Country == "Madagascar")
 
-# RE-CALCULATE richness here to ensure it exists in 'mad_data'
 mad_data$alpha_richness <- rowSums(mad_data[, intersect(keep_viruses, names(mad_data))] > 0)
 
-# Calculate TOTAL distinct viruses found per site per season
 total_seasonal_richness <- mad_data %>%
   group_by(Site, Season) %>%
   summarise(
@@ -1500,7 +1294,6 @@ total_seasonal_richness <- mad_data %>%
     .groups = "drop"
   )
 
-# Assign the plot to a variable
 p1 <- ggplot(total_seasonal_richness, aes(x = Season, y = total_richness, color = Site, group = Site)) +
   geom_line(linewidth = 1.2) +
   geom_point(size = 4) +
@@ -1541,7 +1334,6 @@ p <- ggvenn(
 
 
 # boxplot
-# 1. Double-check that richness is calculated in the main Madagascar data frame
 mad_data$alpha_richness <- rowSums(mad_data[, intersect(keep_viruses, names(mad_data))] > 0)
 
 # 2. Create the Boxplot
@@ -1564,7 +1356,6 @@ print(p_boxplot)
 
 
 # heatmap
-# 1. Ensure we are using the filtered Madagascar data
 mad_long <- mad_data %>%
   filter(Country == "Madagascar") %>%
   pivot_longer(cols = all_of(intersect(keep_viruses, names(mad_data))), 
@@ -1572,26 +1363,24 @@ mad_long <- mad_data %>%
                values_to = "Presence") %>%
   filter(Presence > 0)
 
-# 2. Identify Top 20 Viruses specifically within Madagascar
+# 2. Identify Top 20 Viruses
 top_20_mad_viruses <- mad_long %>%
   count(Virus) %>%
   slice_max(n, n = 20, with_ties = FALSE) %>%
   pull(Virus)
 
-# 3. Create the Matrix and modify the fill logic
+# 3. Create the Matrix
 heatmap_data <- mad_long %>%
   filter(Virus %in% top_20_mad_viruses) %>%
   group_by(Site, Virus) %>%
   summarise(Presence = 1, .groups = "drop") %>%
   mutate(Site = factor(Site)) %>% 
   complete(Site, Virus = top_20_mad_viruses, fill = list(Presence = 0)) %>%
-  # Create a new variable that only holds the Site name if Presence is 1
   mutate(fill_value = ifelse(Presence == 1, as.character(Site), "Absent"))
 
 # 4. Plot Heatmap with Site-specific colors
 p_heatmap <- ggplot(heatmap_data, aes(x = Site, y = Virus, fill = fill_value)) +
   geom_tile(color = "white", lwd = 0.5) +
-  # Apply your specific hex codes
   scale_fill_manual(
     values = c(
       "Ambato Boeny" = "#D73027", 
@@ -1618,78 +1407,9 @@ ggsave("Madagascar_Virus_Heatmap.pdf", p_heatmap, width = 8, height = 10)
 
 
 
-# info #
-# A. Total virus richness for all of Madagascar
-total_mad_richness <- mad_long %>% 
-  summarise(total = n_distinct(Virus)) %>% 
-  pull(total)
-print(paste("Madagascar Total Virus Families:", total_mad_richness))
-
-# B. Species Richness per site (The "N" values)
-site_richness <- mad_long %>%
-  group_by(Site) %>%
-  summarise(N_Virus_Species = n_distinct(Virus)) %>%
-  arrange(desc(N_Virus_Species))
-print(site_richness)
-
-
-# Re-create the list from your 'mad_long' object
-venn_list <- mad_long %>%
-  group_by(Site) %>%
-  summarise(virus_list = list(unique(Virus))) %>%
-  deframe() 
-
-# Now Find viruses present in EVERY site
-core_viruses <- Reduce(intersect, venn_list)
-
-print("--- Viruses Found in All 3 Sites (Core Virome) ---")
-print(core_viruses)
-
-# Count unique viruses for the site richness (The "N" values)
-site_totals <- sapply(venn_list, length)
-print("--- Total Virus Richness (N) per Site ---")
-print(site_totals)
 
 
 
-
-
-# 1. Filter for Madagascar and get counts
-mad_mosq_summary <- mad_data %>%
-  filter(Country == "Madagascar") %>%
-  group_by(Site) %>%
-  summarise(
-    Unique_Species_Count = n_distinct(Mosq_Species_Name),
-    Total_Samples = n(),
-    Species_List = paste(unique(Mosq_Species_Name), collapse = ", ")
-  )
-
-print("--- Unique Species Count per Site ---")
-print(mad_mosq_summary)
-
-# 2. Detailed Breakdown: How many of each species per site?
-species_per_site_table <- mad_data %>%
-  filter(Country == "Madagascar") %>%
-  group_by(Site, Mosq_Species_Name) %>%
-  tally(name = "Individual_Count") %>%
-  arrange(Site, desc(Individual_Count))
-
-print("--- Detailed Species Breakdown ---")
-print(species_per_site_table)
-
-# 3. Optional: Quick Bar Plot to visualize species richness
-library(ggplot2)
-p_mosq_richness <- ggplot(species_per_site_table, aes(x = Site, y = Individual_Count, fill = Mosq_Species_Name)) +
-  geom_bar(stat = "identity", position = "stack") +
-  scale_fill_viridis_d(option = "mako", name = "Mosquito Species") +
-  theme_minimal() +
-  labs(title = "Mosquito Species Composition by Site",
-       y = "Number of Individuals",
-       x = "Sampling Site") +
-  theme(legend.position = "bottom", legend.text = element_text(size = 8))
-
-print(p_mosq_richness)
-ggsave("Madagascar_barplot_mosquitoes.pdf", p_mosq_richness, width = 8, height = 8)
 
 
 
@@ -1711,7 +1431,6 @@ keep_viruses_global <- raw_hits %>%
   filter(total_detections >= 3) %>%
   pull(Virus_name_fin_cut)
 
-# 3. Filter raw data to only include these globally validated viruses
 data_filtered_all <- raw_hits %>%
   filter(Virus_name_fin_cut %in% keep_viruses_global)
 
@@ -1730,7 +1449,6 @@ color_scheme <- c("dsRNA" = "dodgerblue1",
                   "ssDNA" = "lightblue2", 
                   "unassigned" = "grey")
 
-# 6. Optimized Plotting Function
 create_global_barplot <- function(df, factor_name) {
   proportions <- df %>%
     group_by(!!sym(factor_name), kingdom) %>%
@@ -1782,12 +1500,10 @@ library(ggplot2)
 library(dplyr)
 library(tidyr)
 
-# 2. Calculate unique sample counts per Country, Site, Year, and Season
 heatmap_data <- data %>%
   group_by(Country, Site, Collection_Y, Season) %>%
   summarise(n_samples = n_distinct(Sample_Name), .groups = "drop") %>%
   
-  # 3. Fill in the gaps so that 0s show up correctly
   complete(nesting(Country, Site), 
            Collection_Y = unique(data$Collection_Y), 
            Season = c("Rainy", "Dry"), 
@@ -1795,11 +1511,9 @@ heatmap_data <- data %>%
   
   filter(!(Collection_Y == 2021 & Season == "Dry"))
 
-# 4. Set factor levels for proper ordering
 heatmap_data$Season <- factor(heatmap_data$Season, levels = c("Rainy", "Dry"))
 heatmap_data$Collection_Y <- factor(heatmap_data$Collection_Y)
 
-# Order sites alphabetically within each country
 heatmap_data <- heatmap_data %>%
   arrange(Country, desc(Site))
 heatmap_data$Site <- factor(heatmap_data$Site, levels = unique(heatmap_data$Site))
@@ -1809,25 +1523,20 @@ p_effort <- ggplot(heatmap_data, aes(x = Season, y = Site, fill = n_samples)) +
   geom_tile(color = "white", linewidth = 0.5) +
   geom_text(aes(label = n_samples), size = 3.5, fontface = "bold") +
   
-  # Red color scale to match the screenshot
   scale_fill_gradient(low = "grey95", high = "#E41A1C", name = "Samples") +
   
-  # Headers for Year (Top) and Country (Left)
   facet_grid(Country ~ Collection_Y, scales = "free_y", space = "free_y", switch = "y") +
   
   theme_minimal() +
   theme(
-    # Move Country labels to the far left
     strip.placement = "outside",
     strip.background = element_rect(fill = "white", color = "grey80"),
     strip.text.y.left = element_text(angle = 0, face = "bold", size = 10),
     strip.text.x = element_text(face = "bold", size = 12),
     
-    # Grid lines and spacing
     panel.spacing = unit(0.2, "lines"),
     panel.grid = element_blank(),
     
-    # Text formatting
     axis.title = element_blank(),
     axis.text.x = element_text(angle = 0, hjust = 0.5),
     legend.position = "right"
@@ -1851,41 +1560,36 @@ library(ggplot2)
 library(tidyr)
 library(readr)
 
-# This counts how many contigs per species you've already curated
+data <- read.csv("virus_data.csv", na.strings = c("", "NA", "nan", " "), stringsAsFactors = FALSE)
+
+# This counts how many contigs per species was already curated
 classified_counts <- data %>%
   group_by(Mosq_Species_Name) %>%
   summarise(n_classified = n(), .groups = "drop")
 
-# 2. Identify and Map the "Novel/Leftover" contigs
+# 2. Identify and Map the Novel contigs
 class_info <- read.table("unclassifieds_contig_list", header = TRUE, sep = "\t", fill = TRUE)
-contig_map <- read.table("all_contigs.txt", header = FALSE, sep = "\t")
+contig_map <- read.table("fasta_all_contigs_name_map.txt", header = FALSE, sep = "\t")
 colnames(contig_map) <- c("Library_File", "NODE_ID")
 
-# Create the raw dataset with Library names
 raw_mapped_data <- class_info %>%
   inner_join(contig_map, by = "NODE_ID") %>%
   mutate(Sample_Name = sub("_scaffolds_1kb.fasta", "", Library_File))
 
 # 3. Filter for "Novel" and "Unclassified" (The Numerator)
 unclassified_novel_hits <- raw_mapped_data %>%
-  # Skip contigs already in your refined CSV
   filter(!(NODE_ID %in% data$NODE_ID)) %>%
-  # Only take the ones that are taxonomically unclassified
   filter(family == "unclassified") %>%
-  # Join with metadata to get the Mosquito Species
   left_join(distinct(data, Sample_Name, Mosq_Species_Name), by = "Sample_Name") %>%
   group_by(Mosq_Species_Name) %>%
   summarise(n_unclassified = n(), .groups = "drop")
 
-# 4. Join the Numerator and Denominator
+
 proportion_data <- classified_counts %>%
   left_join(unclassified_novel_hits, by = "Mosq_Species_Name") %>%
   mutate(n_unclassified = replace_na(n_unclassified, 0)) %>%
-  # New Formula: Unclassified / (Classified + Unclassified)
-  mutate(proportion = (n_unclassified / (n_classified + n_unclassified)) * 100) %>%
-  filter(n_classified > 3)
+  mutate(proportion = (n_unclassified / (n_classified + n_unclassified)) * 100)
 
-# 5. Create the Barplot
 overall_avg <- mean(proportion_data$proportion, na.rm = TRUE)
 
 p_novelty <- ggplot(proportion_data, aes(x = Mosq_Species_Name, y = proportion)) +
@@ -1916,23 +1620,14 @@ ggsave("Barplot_unclassifieds.pdf", p_novelty, width = 11, height = 8.5)
 # 1. LOAD DATA
 viral_hits <- read.csv("unclass_identity.csv")
 
-# Use read_delim with '\t' if your file is tab-separated. 
 species_map <- read_delim("species_unclass", 
                           delim = "\t", 
                           trim_ws = TRUE)
 
-if (ncol(species_map) < 2) {
-  species_map <- read_table("species_unclass", 
-                            col_names = c("Sample_Name", "Genus", "Species"),
-                            skip = 1) %>%
-    mutate(Mosq_Species_Name = paste(Genus, Species)) %>%
-    dplyr::select(Sample_Name, Mosq_Species_Name)
-}
 
 # 2. JOIN AND CLEAN
 plot_data <- viral_hits %>%
   left_join(species_map, by = "Sample_Name") %>%
-  filter(qcovhsp > 30) %>%
   filter(!is.na(Mosq_Species_Name)) %>%
   mutate(pident = as.numeric(pident))
 
@@ -1955,6 +1650,10 @@ identity_plot <- ggplot(plot_data, aes(x = Mosq_Species_Name, y = pident)) +
 # 4. VIEW AND SAVE
 print(identity_plot)
 ggsave("Unclassified_Identity_by_Species.pdf", width = 10, height = 6)
+
+
+
+
 
 
 
@@ -2055,7 +1754,7 @@ heatmap_prep <- analysis_data %>%
   summarise(mean_rpm = mean(RPM, na.rm = TRUE), .groups = "drop") %>%
   mutate(log_rpm = log10(mean_rpm + 1))
 
-# 4. TRANSFORM TO WIDE MATRIX (Rows = Viruses, Columns = Sites)
+# 4. TRANSFORM TO WIDE MATRIX
 matrix_data <- heatmap_prep %>%
   dplyr::select(Virus_name_fin_cut, Site, log_rpm) %>%
   pivot_wider(names_from = Site, values_from = log_rpm, values_fill = 0)
@@ -2067,9 +1766,8 @@ rownames(mat) <- matrix_data$Virus_name_fin_cut
 site_info <- heatmap_prep %>% 
   dplyr::select(Site, Country) %>% 
   distinct() %>%
-  arrange(Country) # Sorts them so the split looks clean
+  arrange(Country) 
 
-# Reorder matrix columns to match our site_info
 mat <- mat[, site_info$Site]
 
 # 6. DEFINE THE COLOR SCALE
@@ -2085,7 +1783,6 @@ ht <- Heatmap(mat,
               cluster_rows = TRUE, 
               cluster_columns = TRUE,
               
-              # COLUMN SPLITTING: Group sites by Country
               column_split = site_info$Country,
               column_title_gp = gpar(fontsize = 10, fontface = "bold"),
               
