@@ -41,15 +41,15 @@ To make it easier to navigate the `stats.R` script, it is divided into distinct 
 *   **Outputs:** `[Country]_sampling_map.pdf`, `[Country]_top50_virus_map.pdf`
 
 ### 3. Diversity Metrics (`#### ALPHA AND SHANNON ####`)
-*   **What it does:** Filters viruses (n >= 3 detections) and calculates Alpha Richness (virus count) and Shannon Diversity (H'). It runs non-parametric Kruskal-Wallis and Dunn's post-hoc tests to find statistically significant differences between mosquito species. It also generates a mean richness heatmap.
+*   **What it does:** Filters viruses (n >= 3 detections) and calculates Alpha Richness (virus count) and Shannon Diversity (H'). Fits a robust linear model (with HC3 standard errors) to compare viral alpha richness and Shannon diversity across mosquito species, using Tukey HSD for pairwise post-hoc comparisons to account for heteroscedasticity.
 *   **Outputs:** 
-    *   `Mosquito_Alpha_NonParametric_FINAL.pdf`
-    *   `Mosquito_Shannon_NonParametric_FINAL.pdf`
+    *   `Mosquito_Alpha_FINAL.pdf` 
+    *   `Mosquito_Shannon_FINAL.pdf`
     *   `Virus_Richness_Heatmap_Final.pdf`
 
 ### 4. Statistical Modeling (`#### GLM ####` & `#### MOSQ SPECIES PERMANOVA ####`)
 *   **What it does:** 
-    *   **GLM:** Fits a penalised Poisson Generalized Linear Model to determine how much variance in viral richness is explained by Species, Site, Season, and Year.
+    *   **GLM:** Fits a standard Poisson Generalized Linear Model to partition the variance in viral alpha richness across mosquito species, site, season, and collection year. The model is statistically validated for overdispersion, and the sequential Type I deviance explained by each factor is visualised as a proportional pie chart.
     *   **PERMANOVA:** Uses `adonis2` to test the significance of these factors on overall virome composition.
     *   **Indicator Species:** Uses `indicspecies` to find which specific viruses are strong indicators for specific mosquito hosts, sites, or seasons.
 *   **Outputs:** `Viral_GLM_Pie_Chart.pdf`, `permanova.pdf`, `PERMANOVA_Results_Global.txt`, `Indicators_[Factor].pdf`, `Consolidated_Indicators_Optimized.pdf`
@@ -60,7 +60,7 @@ To make it easier to navigate the `stats.R` script, it is divided into distinct 
 
 ### 6. Network Analysis (`#### NETWORK ####` & `#### MADAGASCAR ####`)
 *   **What it does:** Constructs a Jaccard-similarity network of viral communities. It also includes a subset analysis exclusively for Madagascar to create a bipartite virus-host interactome (showing vOTUs with broader and more specialized hosts).
-*   **Outputs:** `virome_network_CLEAN_LABELS.pdf`, `Madagascar_Bipartite_No_Cutoff.pdf`, and various Madagascar-specific charts (Seasonal Richness, Venn Diagram).
+*   **Outputs:** `virome_network.pdf`, `Madagascar_Bipartite.pdf`, and various Madagascar-specific charts (Seasonal Richness, Venn Diagram).
 
 ### 7. Taxonomic Summaries (`#### FIGURE STACKED BARPLOT (WHOLE DATASET) ####`)
 *   **What it does:** Aggregates the data by viral kingdom (e.g., dsRNA, negRNA, posRNA) and generates stacked barplots broken down by Country, Mosquito Species, Site, and Year.
